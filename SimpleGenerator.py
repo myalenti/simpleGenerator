@@ -8,7 +8,6 @@ import timeit
 import multiprocessing
 import getopt
 import ast
-import json
 import names
 import random
 import os
@@ -22,7 +21,7 @@ from pymongo import MongoClient, InsertOne
 target="127.0.0.1"
 port=27017
 repSet="rpl1"
-bulkSize=20
+bulkSize=100
 username=""
 password=""
 database="axa"
@@ -32,6 +31,12 @@ procCount=2
 totalDocuments=1000
 tstart_time = time.time()
 executionTimes=[]
+
+#preGenerating random list for use in document with a random integer
+randomList=[]
+for i in xrange(22):
+    randomList.append(random.random())
+
 
 logging.basicConfig(level=logLevel,
                     format='(%(threadName)4s) %(levelname)s %(message)s',
@@ -52,39 +57,46 @@ def connector():
     return
 
 def generateDocument():
-    randSequence = random.sample(xrange(9999),30)
-    faker = Factory.create()
-    faker.seed(os.getpid())
-    fakeText = faker.text()
-    firstname = names.get_first_name()
-    lastname = names.get_last_name()
-    email = firstname + "." + lastname + "@mongodb.com"
+    #randSequence = random.sample(xrange(9999),21)
+    randSeed = random.randint(0, 100)
+    randConfuser = randomList[1]
+    randAnchor = randSeed * randConfuser
+    #faker = Factory.create()
+    #faker.seed(os.getpid())
+    #fakeText = faker.text()
+    ####Generating data from Faker is epensive... Very expensive
+    #firstname = names.get_first_name()
+    #lastname = names.get_last_name()
+    #email = firstname + "." + lastname + "@mongodb.com"
+    firstname = "fn"
+    lastname = "ln"
+    email = "fn_ln" + "@mongodb.com"
     record = OrderedDict()
     record['name']  = OrderedDict()
     record['name']['firstName'] = firstname
     record['name']['lastName'] = lastname
     record['contact'] = OrderedDict()
     record['contact']['email'] = email
-    record['nfld1'] = randSequence[0]
-    record['nfld2'] = randSequence[2]
-    record['nfld3'] = randSequence[3]
-    record['nfld4'] = randSequence[4]
-    record['nfld5'] = randSequence[5]
-    record['nfld6'] = randSequence[6]
-    record['nfld7'] = randSequence[7]
-    record['nfld8'] = randSequence[8]
-    record['nfld9'] = randSequence[9]
-    record['nfld10'] = randSequence[10]
-    record['nfld11'] = randSequence[11]
-    record['nfld12'] = randSequence[12]
-    record['nfld13'] = randSequence[13]
-    record['nfld14'] = randSequence[14]
-    record['nfld15'] = randSequence[15]
-    record['nfld16'] = randSequence[16]
-    record['nfld17'] = randSequence[17]
-    record['nfld18'] = randSequence[18]
-    record['nfld19'] = randSequence[19]
-    record['nfld20'] = randSequence[20]
+    record['nfld1'] = randAnchor / randomList[0]
+    record['nfld2'] = randAnchor / randomList[1]
+    record['nfld3'] = randAnchor / randomList[2]
+    record['nfld4'] = randAnchor / randomList[3]
+    record['nfld5'] = randAnchor / randomList[4]
+    record['nfld6'] = randAnchor / randomList[5]
+    record['nfld7'] = randAnchor / randomList[6]
+    record['nfld8'] = randAnchor / randomList[7]
+    record['nfld9'] = randAnchor / randomList[8]
+    record['nfld10'] = randAnchor / randomList[9]
+    record['nfld11'] = randAnchor / randomList[10]
+    record['nfld12'] = randAnchor / randomList[11]
+    record['nfld13'] = randAnchor / randomList[12]
+    record['nfld14'] = randAnchor / randomList[13]
+    record['nfld15'] = randAnchor / randomList[14]
+    record['nfld16'] = randAnchor / randomList[15]
+    record['nfld17'] = randAnchor / randomList[16]
+    record['nfld18'] = randAnchor / randomList[17]
+    record['nfld19'] = randAnchor / randomList[18]
+    record['nfld20'] = randAnchor / randomList[19]
     #record['nfld21'] = randSequence[21]
     #record['nfld22'] = randSequence[22]
     #record['nfld23'] = randSequence[23]
@@ -107,6 +119,7 @@ def generateDocument():
     #record['strfld10'] = fakeText[181:200]
 
     #print record
+    logging.debug( "Document : %s" % (str(record)))
     return record
 
 def worker(iterations):
