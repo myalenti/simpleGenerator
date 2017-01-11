@@ -18,26 +18,25 @@ from collections import OrderedDict
 from time import sleep
 
 from pymongo import MongoClient, InsertOne, command_cursor
-from Finder.Finder_items import item
 
 #Global Parameters
 target="127.0.0.1"
 port=27017
-repSet="rpl1"
+repSet="none"
 bulkSize=100
 username=""
 password=""
 database="axa"
 collection="profiles"
 logLevel=logging.INFO
-procCount=2
-totalDocuments=1000
+procCount=16
+totalDocuments=500000000
 tstart_time = time.time()
 executionTimes=[]
 seqBase = 100000000
 #opMode = "insert"
 opMode = "workload"
-workloadTime = 30
+workloadTime = 600
 minSeqId = 0
 maxSeqId = 0
 
@@ -156,20 +155,24 @@ def worker(iterations, seqBase):
 
 
 def getMinMax():
+    print "Working on MinMax"
     global minSeqId
     global maxSeqId
     connection = connector()
     db = connection[database]
     col = db[collection]
-    cur = col.aggregate( [{ "$group" : { "_id" : {} , "max" : { "$max" : "$SeqId" }}}, { "$project" : { "_id" : 0 }} ])
+    #cur = col.aggregate( [{ "$group" : { "_id" : {} , "max" : { "$max" : "$SeqId" }}}, { "$project" : { "_id" : 0 }} ])
+    cur = col.find({},{ "_id" : 0, "SeqId" : 1}).sort("SeqId" , pymongo.DESCENDING ).limit(1)
     item = cur.next()
-    maxSeqId = item['max']
-    cur = col.aggregate( [{ "$group" : { "_id" : {} , "min" : { "$min" : "$SeqId" }}}, { "$project" : { "_id" : 0 }} ])
+    maxSeqId = item['SeqId']
+    #cur = col.aggregate( [{ "$group" : { "_id" : {} , "min" : { "$min" : "$SeqId" }}}, { "$project" : { "_id" : 0 }} ])
+    cur = col.find({},{ "_id" : 0, "SeqId" : 1}).sort("SeqId" , pymongo.ASCENDING ).limit(1)
     item = cur.next()
-    minSeqId = item['min']
+    minSeqId = item['SeqId']
     logging.info(" Max is %d and Min is %d" % (maxSeqId, minSeqId))
 
 def wquery():
+    logging.info("Starting query load")
     connection = connector()
     db = connection[database]
     col = db[collection]  
@@ -177,18 +180,19 @@ def wquery():
     
     startTime = datetime.datetime.now()
     endTime = startTime + datetime.timedelta(seconds=workloadTime)
-    print startTime
-    print endTime
+    #print startTime
+    #print endTime
     
     while ( datetime.datetime.now() < endTime):
         query = { "SeqId" : seqId }
         cur = col.find( query )
         item = cur.next()
-        logging.info("Query Element %s" % str(item))
-        sleep(0.1)
+        logging.debug("Query Element %s" % str(item))
+        sleep(0.07)
     
 
 def wupdate():
+    logging.info("Starting updates")
     connection = connector()
     db = connection[database]
     col = db[collection]  
@@ -196,31 +200,32 @@ def wupdate():
     
     startTime = datetime.datetime.now()
     endTime = startTime + datetime.timedelta(seconds=workloadTime)
-    print startTime
-    print endTime
+    #print startTime
+    #print endTime
     
     while ( datetime.datetime.now() < endTime):
         newValue = random.randint(0,100)
         query = { "SeqId" : seqId }
         update = { "$set" : {"Integer2" : newValue }}
         result = col.update_one( query, update )
-        logging.info("Update Results %s" % str(result.raw_result))
-        sleep(0.1)
+        logging.debug("Update Results %s" % str(result.raw_result))
+        sleep(0.07)
 
 def slowInserts():
+    logging.info("Starting slow inserts")
     nextSeqId = maxSeqId + 1
     connection = connector()
     db = connection[database]
     col = db[collection]  
     startTime = datetime.datetime.now()
     endTime = startTime + datetime.timedelta(seconds=workloadTime)
-    print startTime
-    print endTime
+    #print startTime
+    #print endTime
     
     while ( datetime.datetime.now() < endTime):
         result = col.insert_one(generateDocument(nextSeqId))
-        logging.info("Update Results %s" % str(result.inserted_id))
-        sleep(0.1)
+        logging.debug("Update Results %s" % str(result.inserted_id))
+        sleep(0.07)
         nextSeqId += 1
         
 jobs = []
