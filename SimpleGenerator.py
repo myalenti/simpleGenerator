@@ -69,20 +69,11 @@ def connector():
     return
 
 def generateDocument(seqId):
-    #randSequence = random.sample(xrange(9999),21)
+    
     randSeed = random.randint(0, 100)
     randConfuser = randomList[1]
     randAnchor = randSeed * randConfuser
-    #faker = Factory.create()
-    #faker.seed(os.getpid())
-    #fakeText = faker.text()
-    ####Generating data from Faker is epensive... Very expensive
-    #firstname = names.get_first_name()
-    #lastname = names.get_last_name()
-    #email = firstname + "." + lastname + "@mongodb.com"
-    #firstname = "fn"
-    #lastname = "ln"
-    #email = "fn_ln" + "@mongodb.com"
+    
     record = OrderedDict()
     #Four Text Fields
     record['SeqId'] = seqId
