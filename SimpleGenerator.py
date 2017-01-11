@@ -15,8 +15,10 @@ import datetime
 import pymongo
 from faker import Factory
 from collections import OrderedDict
+from time import sleep
 
-from pymongo import MongoClient, InsertOne
+from pymongo import MongoClient, InsertOne, command_cursor
+from Finder.Finder_items import item
 
 #Global Parameters
 target="127.0.0.1"
@@ -28,11 +30,16 @@ password=""
 database="axa"
 collection="profiles"
 logLevel=logging.INFO
-procCount=3
-totalDocuments=1000000
+procCount=2
+totalDocuments=1000
 tstart_time = time.time()
 executionTimes=[]
 seqBase = 100000000
+#opMode = "insert"
+opMode = "workload"
+workloadTime = 30
+minSeqId = 0
+maxSeqId = 0
 
 faker = Factory.create()
 
@@ -73,9 +80,9 @@ def generateDocument(seqId):
     #firstname = names.get_first_name()
     #lastname = names.get_last_name()
     #email = firstname + "." + lastname + "@mongodb.com"
-    firstname = "fn"
-    lastname = "ln"
-    email = "fn_ln" + "@mongodb.com"
+    #firstname = "fn"
+    #lastname = "ln"
+    #email = "fn_ln" + "@mongodb.com"
     record = OrderedDict()
     #Four Text Fields
     record['SeqId'] = seqId
@@ -156,7 +163,75 @@ def worker(iterations, seqBase):
         itCounter += 1
     logging.info("Average Bulk write execution time in secs %f on thread %s" % ( numpy.average(executionTimes), multiprocessing.current_process().pid))
 
-#worker(100)
+
+def getMinMax():
+    global minSeqId
+    global maxSeqId
+    connection = connector()
+    db = connection[database]
+    col = db[collection]
+    cur = col.aggregate( [{ "$group" : { "_id" : {} , "max" : { "$max" : "$SeqId" }}}, { "$project" : { "_id" : 0 }} ])
+    item = cur.next()
+    maxSeqId = item['max']
+    cur = col.aggregate( [{ "$group" : { "_id" : {} , "min" : { "$min" : "$SeqId" }}}, { "$project" : { "_id" : 0 }} ])
+    item = cur.next()
+    minSeqId = item['min']
+    logging.info(" Max is %d and Min is %d" % (maxSeqId, minSeqId))
+
+def wquery():
+    connection = connector()
+    db = connection[database]
+    col = db[collection]  
+    seqId = random.randint(minSeqId, maxSeqId)
+    
+    startTime = datetime.datetime.now()
+    endTime = startTime + datetime.timedelta(seconds=workloadTime)
+    print startTime
+    print endTime
+    
+    while ( datetime.datetime.now() < endTime):
+        query = { "SeqId" : seqId }
+        cur = col.find( query )
+        item = cur.next()
+        logging.info("Query Element %s" % str(item))
+        sleep(0.1)
+    
+
+def wupdate():
+    connection = connector()
+    db = connection[database]
+    col = db[collection]  
+    seqId = random.randint(minSeqId, maxSeqId)
+    
+    startTime = datetime.datetime.now()
+    endTime = startTime + datetime.timedelta(seconds=workloadTime)
+    print startTime
+    print endTime
+    
+    while ( datetime.datetime.now() < endTime):
+        newValue = random.randint(0,100)
+        query = { "SeqId" : seqId }
+        update = { "$set" : {"Integer2" : newValue }}
+        result = col.update_one( query, update )
+        logging.info("Update Results %s" % str(result.raw_result))
+        sleep(0.1)
+
+def slowInserts():
+    nextSeqId = maxSeqId + 1
+    connection = connector()
+    db = connection[database]
+    col = db[collection]  
+    startTime = datetime.datetime.now()
+    endTime = startTime + datetime.timedelta(seconds=workloadTime)
+    print startTime
+    print endTime
+    
+    while ( datetime.datetime.now() < endTime):
+        result = col.insert_one(generateDocument(nextSeqId))
+        logging.info("Update Results %s" % str(result.inserted_id))
+        sleep(0.1)
+        nextSeqId += 1
+        
 jobs = []
 
 #setSize is the quotient of totaldocument/procCount (how many docs each process is to deliver)
@@ -165,16 +240,36 @@ setSize = totalDocuments / procCount
 bulkCount = setSize/bulkSize
 procSeqBase = seqBase  
 
-logging.info("Set Size is %d, and iteration count is %d given bulk size of %d" % (setSize, bulkCount, bulkSize))
-for i in range(procCount):
-    p = multiprocessing.Process(target=worker, args=(bulkCount,procSeqBase,))
-    p.start()
-    jobs.append(p)
-    procSeqBase = seqBase + ( (i+1) * setSize)
-    logging.info("Process id %d with base of %d"  % ( i , procSeqBase ))
+if (opMode == "insert"):
+    logging.info("Working in Insert mode")
+    logging.info("Set Size is %d, and iteration count is %d given bulk size of %d" % (setSize, bulkCount, bulkSize))
+    for i in range(procCount):
+        p = multiprocessing.Process(target=worker, args=(bulkCount,procSeqBase,))
+        p.start()
+        jobs.append(p)
+        procSeqBase = seqBase + ( (i+1) * setSize)
+        logging.info("Process id %d with base of %d"  % ( i , procSeqBase ))
   
 
+    
+
+if (opMode == "workload"):
+    logging.info("Working in workload mode")
+    getMinMax()
+    p = multiprocessing.Process(target=wquery, args=())
+    p.start()
+    jobs.append(p)
+    p = multiprocessing.Process(target=wupdate, args=())
+    p.start()
+    jobs.append(p)
+    p = multiprocessing.Process(target=slowInserts, args=())
+    p.start()
+    jobs.append(p)
+    #wquery()
+    #wupdate()
+    #slowInserts()
+
 for i in jobs:
-    i.join()
-tend_time = time.time()
-logging.info("Total Execution time was %f" % (tend_time - tstart_time) )
+        i.join()
+        tend_time = time.time()
+        logging.info("Total Execution time was %f" % (tend_time - tstart_time) )
