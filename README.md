@@ -1,6 +1,6 @@
 # simpleGenerator
 
-This dataset and workload generator is not document.
+This dataset and workload generator is not documented.
 It is simple to use but it requires manipulating environment variable.
 There are essentially two modes. insert and workload.
 You toggle between both modes by editing the opMode variable
