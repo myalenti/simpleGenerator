@@ -22,23 +22,28 @@ from pymongo import MongoClient, InsertOne, command_cursor
 #Global Parameters
 target="127.0.0.1"
 port=27017
-repSet="none"
+#None is a keyword in python signifying nothing or null... if you change the repset to have a value put it in quotes as its a string
+repSet=None
 bulkSize=100
 username=""
 password=""
 database="axa"
 collection="profiles"
 logLevel=logging.INFO
-procCount=16
-totalDocuments=500000000
+procCount=2
+totalDocuments=100000
 tstart_time = time.time()
 executionTimes=[]
 seqBase = 100000000
+
 #opMode = "insert"
 opMode = "workload"
-workloadTime = 600
+workloadTime = 30
 minSeqId = 0
 maxSeqId = 0
+queryThreads=2
+updateThreads=2
+insertThreads=1
 
 faker = Factory.create()
 
@@ -56,7 +61,7 @@ logging.basicConfig(level=logLevel,
 def connector():
     try:
         #connection = MongoClient(target,port,replicaSet=repSet,serverSelectionTimeoutMS=2000,connectTimeoutMS=2000)
-        connection = MongoClient(target,port,connectTimeoutMS=2000)
+        connection = MongoClient(target,port,connectTimeoutMS=2000,replicaSet=repSet)
         if (username != ""):
             connection.admin.authenticate(username,password)
             return connection
@@ -155,17 +160,18 @@ def worker(iterations, seqBase):
 
 
 def getMinMax():
-    print "Working on MinMax"
+    
     global minSeqId
     global maxSeqId
     connection = connector()
     db = connection[database]
     col = db[collection]
-    #cur = col.aggregate( [{ "$group" : { "_id" : {} , "max" : { "$max" : "$SeqId" }}}, { "$project" : { "_id" : 0 }} ])
     cur = col.find({},{ "_id" : 0, "SeqId" : 1}).sort("SeqId" , pymongo.DESCENDING ).limit(1)
+    if (cur.count() == 0):
+        print "Current Collection appears to be empty, exiting"
+        exit()
     item = cur.next()
     maxSeqId = item['SeqId']
-    #cur = col.aggregate( [{ "$group" : { "_id" : {} , "min" : { "$min" : "$SeqId" }}}, { "$project" : { "_id" : 0 }} ])
     cur = col.find({},{ "_id" : 0, "SeqId" : 1}).sort("SeqId" , pymongo.ASCENDING ).limit(1)
     item = cur.next()
     minSeqId = item['SeqId']
@@ -228,6 +234,26 @@ def slowInserts():
         sleep(0.07)
         nextSeqId += 1
         
+
+def checkCollection():
+    connection = connector()
+    db = connection[database]
+    col = db[collection]  
+    docCount = col.count()
+    if ( docCount != 0):
+        print "The collection namespace " + database + "." + collection +" is not empty, are you sure you want to continue with the insert job - you will have duplicate SeqId values"
+        response = raw_input("Please answer Yes or No: ")
+        if ( response.lower() == 'no'):
+            print "Exiting on user abort"
+            exit();
+        elif (response.lower() == "yes"):
+            print "Continuing on user request"
+        else:
+            print "Uncrecognized answer, exiting. Valid responses are either Yes or No"
+            exit()
+            
+            
+#Main code start point
 jobs = []
 
 #setSize is the quotient of totaldocument/procCount (how many docs each process is to deliver)
@@ -237,8 +263,10 @@ bulkCount = setSize/bulkSize
 procSeqBase = seqBase  
 
 if (opMode == "insert"):
+    checkCollection()
     logging.info("Working in Insert mode")
     logging.info("Set Size is %d, and iteration count is %d given bulk size of %d" % (setSize, bulkCount, bulkSize))
+    
     for i in range(procCount):
         p = multiprocessing.Process(target=worker, args=(bulkCount,procSeqBase,))
         p.start()
@@ -252,15 +280,19 @@ if (opMode == "insert"):
 if (opMode == "workload"):
     logging.info("Working in workload mode")
     getMinMax()
-    p = multiprocessing.Process(target=wquery, args=())
-    p.start()
-    jobs.append(p)
-    p = multiprocessing.Process(target=wupdate, args=())
-    p.start()
-    jobs.append(p)
-    p = multiprocessing.Process(target=slowInserts, args=())
-    p.start()
-    jobs.append(p)
+    
+    for i in xrange(queryThreads):
+        p = multiprocessing.Process(target=wquery, args=())
+        p.start()
+        jobs.append(p)
+    for i in xrange(updateThreads):
+        p = multiprocessing.Process(target=wupdate, args=())
+        p.start()
+        jobs.append(p)
+    for i in xrange(insertThreads):
+        p = multiprocessing.Process(target=slowInserts, args=())
+        p.start()
+        jobs.append(p)
     #wquery()
     #wupdate()
     #slowInserts()
