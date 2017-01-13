@@ -49,6 +49,7 @@ faker = Factory.create()
 
 
 #preGenerating random list for use in document with a random integer
+#comment
 randomList=[]
 for i in xrange(5):
     randomList.append(random.random())
@@ -190,6 +191,7 @@ def wquery():
     #print endTime
     
     while ( datetime.datetime.now() < endTime):
+        seqId = random.randint(minSeqId, maxSeqId)
         query = { "SeqId" : seqId }
         cur = col.find( query )
         item = cur.next()
@@ -210,6 +212,7 @@ def wupdate():
     #print endTime
     
     while ( datetime.datetime.now() < endTime):
+        seqId = random.randint(minSeqId, maxSeqId)
         newValue = random.randint(0,100)
         query = { "SeqId" : seqId }
         update = { "$set" : {"Integer2" : newValue }}
