@@ -20,25 +20,27 @@ from time import sleep
 from pymongo import MongoClient, InsertOne, command_cursor
 
 #Global Parameters
-target="127.0.0.1"
+#target="myalenti-axa-2.yalenti-poc.2800.mongodbdns.com"
+target=
 port=27017
 #None is a keyword in python signifying nothing or null... if you change the repset to have a value put it in quotes as its a string
-repSet=None
+repSet="loadTest"
 bulkSize=100
-username=""
-password=""
-database="axa"
-collection="profiles"
+username=
+password=
+database="bkup_test"
+collection="data"
 logLevel=logging.INFO
-procCount=2
-totalDocuments=100000
+procCount=8
+totalDocuments=14000000
 tstart_time = time.time()
 executionTimes=[]
 seqBase = 100000000
+wconcern="majority"
 
-#opMode = "insert"
-opMode = "workload"
-workloadTime = 30
+opMode = "insert"
+#opMode = "workload"
+workloadTime = 3600
 minSeqId = 0
 maxSeqId = 0
 queryThreads=2
@@ -51,7 +53,7 @@ faker = Factory.create()
 #preGenerating random list for use in document with a random integer
 #comment
 randomList=[]
-for i in xrange(5):
+for i in xrange(200):
     randomList.append(random.random())
 
 
@@ -62,7 +64,7 @@ logging.basicConfig(level=logLevel,
 def connector():
     try:
         #connection = MongoClient(target,port,replicaSet=repSet,serverSelectionTimeoutMS=2000,connectTimeoutMS=2000)
-        connection = MongoClient(target,port,connectTimeoutMS=2000,replicaSet=repSet)
+        connection = MongoClient(target,port,connectTimeoutMS=2000,replicaSet=repSet,w=wconcern)
         if (username != ""):
             connection.admin.authenticate(username,password)
             return connection
@@ -75,8 +77,8 @@ def connector():
 
 def generateDocument(seqId):
     
-    randSeed = random.randint(0, 100)
-    randConfuser = randomList[1]
+    randSeed = random.randint(0, 1000000)
+    randConfuser = random.choice(randomList)
     randAnchor = randSeed * randConfuser
     
     record = OrderedDict()
@@ -195,7 +197,8 @@ def wquery():
         query = { "SeqId" : seqId }
         cur = col.find( query )
         item = cur.next()
-        logging.debug("Query Element %s" % str(item))
+        #logging.debug("Query Element %s" % str(item))
+        logging.debug("%d" % seqId)
         sleep(0.07)
     
 
