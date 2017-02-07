@@ -17,35 +17,41 @@ from faker import Factory
 from collections import OrderedDict
 from time import sleep
 
-from pymongo import MongoClient, InsertOne, command_cursor
+from pymongo import MongoClient, InsertOne, command_cursor, collection, ReadPreference
 
 #Global Parameters
 #target="myalenti-axa-2.yalenti-poc.2800.mongodbdns.com"
-target=
+target="myalenti-load-1.yalenti-demo.8839.mongodbdns.com"
 port=27017
 #None is a keyword in python signifying nothing or null... if you change the repset to have a value put it in quotes as its a string
 repSet="loadTest"
 bulkSize=100
-username=
-password=
+username="myalenti"
+password="1sqw2aA9"
 database="bkup_test"
-collection="data"
+strCollection="data"
 logLevel=logging.INFO
-procCount=8
+procCount=14
 totalDocuments=14000000
 tstart_time = time.time()
 executionTimes=[]
 seqBase = 100000000
-wconcern="majority"
+wconcern="1"
 
-opMode = "insert"
-#opMode = "workload"
+#opMode = "insert"
+opMode = "workload"
+nextSeqId = 0 
 workloadTime = 3600
 minSeqId = 0
 maxSeqId = 0
-queryThreads=2
-updateThreads=2
+buckets = []
+bucketTuples = []
+queryThreads=3
+updateThreads=3
 insertThreads=1
+sleepDelay=0.0
+readPreference=ReadPreference.SECONDARY
+#readPreference=ReadPreference.PRIMARY
 
 faker = Factory.create()
 
@@ -63,8 +69,7 @@ logging.basicConfig(level=logLevel,
 
 def connector():
     try:
-        #connection = MongoClient(target,port,replicaSet=repSet,serverSelectionTimeoutMS=2000,connectTimeoutMS=2000)
-        connection = MongoClient(target,port,connectTimeoutMS=2000,replicaSet=repSet,w=wconcern)
+        connection = MongoClient(target,port,connectTimeoutMS=2000,replicaSet=repSet,w=wconcern,maxPoolSize=1000)
         if (username != ""):
             connection.admin.authenticate(username,password)
             return connection
@@ -124,7 +129,7 @@ def generateDocument(seqId):
 def worker(iterations, seqBase):
     connection = connector()
     db = connection[database]
-    col = db[collection]
+    col = db[strCollection]
 
     itCounter = 0
     seqNumb = seqBase
@@ -166,9 +171,12 @@ def getMinMax():
     
     global minSeqId
     global maxSeqId
+    global buckets
+    global bucketTuples
+    global nextSeqid
     connection = connector()
     db = connection[database]
-    col = db[collection]
+    col = db[strCollection]
     cur = col.find({},{ "_id" : 0, "SeqId" : 1}).sort("SeqId" , pymongo.DESCENDING ).limit(1)
     if (cur.count() == 0):
         print "Current Collection appears to be empty, exiting"
@@ -178,36 +186,57 @@ def getMinMax():
     cur = col.find({},{ "_id" : 0, "SeqId" : 1}).sort("SeqId" , pymongo.ASCENDING ).limit(1)
     item = cur.next()
     minSeqId = item['SeqId']
+    nextSeqId = maxSeqId + 1
+    pipeline = [ { "$bucketAuto" : { "groupBy" : "$SeqId", "buckets" : 16}}]
+    cur = col.aggregate(pipeline,allowDiskUse=True)
+    for doc in cur:
+        buckets.append(doc)
+    
+    for i in buckets:
+        print i
+        tup = (i["_id"]["min"],i["_id"]["max"])
+        bucketTuples.append(tup)
+    print bucketTuples 
     logging.info(" Max is %d and Min is %d" % (maxSeqId, minSeqId))
 
 def wquery():
     logging.info("Starting query load")
     connection = connector()
     db = connection[database]
-    col = db[collection]  
-    seqId = random.randint(minSeqId, maxSeqId)
+    col = collection.Collection(db,strCollection,read_preference=readPreference)  
+    #seqId = random.randint(minSeqId, maxSeqId)
     
     startTime = datetime.datetime.now()
     endTime = startTime + datetime.timedelta(seconds=workloadTime)
-    #print startTime
-    #print endTime
     
     while ( datetime.datetime.now() < endTime):
-        seqId = random.randint(minSeqId, maxSeqId)
+        randBucket = random.choice(bucketTuples)
+
+        #seqId = random.randint(minSeqId, maxSeqId)
+        seqId = random.randint(randBucket[0], randBucket[1])
         query = { "SeqId" : seqId }
         cur = col.find( query )
-        item = cur.next()
-        #logging.debug("Query Element %s" % str(item))
+        try:
+            if ( cur.alive ==  True ) : 
+                item = cur.next()
+                cur.close()
+        except:
+            print "Error with the cursor - likely empty"
+            exit()
+         
         logging.debug("%d" % seqId)
-        sleep(0.07)
+        sleep(sleepDelay)
     
 
 def wupdate():
     logging.info("Starting updates")
     connection = connector()
     db = connection[database]
-    col = db[collection]  
-    seqId = random.randint(minSeqId, maxSeqId)
+    col = db[strCollection]  
+    randBucket = random.choice(bucketTuples)
+    seqId = random.randint(randBucket[0], randBucket[1])
+
+    #seqId = random.randint(minSeqId, maxSeqId)
     
     startTime = datetime.datetime.now()
     endTime = startTime + datetime.timedelta(seconds=workloadTime)
@@ -221,14 +250,14 @@ def wupdate():
         update = { "$set" : {"Integer2" : newValue }}
         result = col.update_one( query, update )
         logging.debug("Update Results %s" % str(result.raw_result))
-        sleep(0.07)
+        sleep(sleepDelay)
 
 def slowInserts():
+    global nextSeqId
     logging.info("Starting slow inserts")
-    nextSeqId = maxSeqId + 1
     connection = connector()
     db = connection[database]
-    col = db[collection]  
+    col = db[strCollection]  
     startTime = datetime.datetime.now()
     endTime = startTime + datetime.timedelta(seconds=workloadTime)
     #print startTime
@@ -237,17 +266,17 @@ def slowInserts():
     while ( datetime.datetime.now() < endTime):
         result = col.insert_one(generateDocument(nextSeqId))
         logging.debug("Update Results %s" % str(result.inserted_id))
-        sleep(0.07)
+        sleep(sleepDelay)
         nextSeqId += 1
         
 
 def checkCollection():
     connection = connector()
     db = connection[database]
-    col = db[collection]  
+    col = db[strCollection]  
     docCount = col.count()
     if ( docCount != 0):
-        print "The collection namespace " + database + "." + collection +" is not empty, are you sure you want to continue with the insert job - you will have duplicate SeqId values"
+        print "The collection namespace " + database + "." + strCollection +" is not empty, are you sure you want to continue with the insert job - you will have duplicate SeqId values"
         response = raw_input("Please answer Yes or No: ")
         if ( response.lower() == 'no'):
             print "Exiting on user abort"
